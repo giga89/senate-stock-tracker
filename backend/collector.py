@@ -11,6 +11,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 SENATE_DATA_URL = "https://senate-stock-watcher-data.s3-us-west-2.amazonaws.com/aggregate/all_transactions.json"
+HOUSE_DATA_URL = "https://house-stock-watcher-data.s3-us-west-2.amazonaws.com/data/all_transactions.json"
 
 def get_stock_prices(ticker, transaction_date_str):
     """
@@ -73,16 +74,42 @@ def calculate_roi(tx_type, tx_price, curr_price):
         return -perf
     return 0.0
 
+def fetch_data_from_url(url, chamber):
+    try:
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        }
+        response = requests.get(url, headers=headers)
+        if response.status_code == 200:
+            data = response.json()
+            for row in data:
+                row['chamber_assigned'] = chamber
+            return data
+        else:
+            logger.warning(f"Failed to fetch {chamber} data. HTTP {response.status_code}")
+            return []
+    except Exception as e:
+        logger.warning(f"Error fetching {chamber} data: {e}")
+        return []
+
 def collect_data(days_back=180):
     logger.info("Starting data collection...")
     init_db()
     
-    response = requests.get(SENATE_DATA_URL)
-    if response.status_code != 200:
-        logger.error("Failed to fetch senate data.")
+    all_data = []
+    
+    # Fetch Senate
+    senate_data = fetch_data_from_url(SENATE_DATA_URL, "Senate")
+    all_data.extend(senate_data)
+    
+    # Fetch House
+    house_data = fetch_data_from_url(HOUSE_DATA_URL, "House")
+    all_data.extend(house_data)
+    
+    if not all_data:
+        logger.error("No data fetched from any source.")
         return
         
-    data = response.json()
     cutoff_date = datetime.now() - timedelta(days=days_back)
     
     conn = get_connection()
@@ -95,21 +122,25 @@ def collect_data(days_back=180):
     # Dates are in MM/DD/YYYY format usually
     def safe_parse_date(d):
         try:
-            return datetime.strptime(d['transaction_date'], "%m/%d/%Y")
+            return datetime.strptime(d.get('transaction_date', ''), "%m/%d/%Y")
         except:
-            return datetime.min
+            try:
+                return datetime.strptime(d.get('transaction_date', ''), "%Y-%m-%d")
+            except:
+                return datetime.min
             
-    data.sort(key=safe_parse_date, reverse=True)
+    all_data.sort(key=safe_parse_date, reverse=True)
     
-    for row in data:
+    for row in all_data:
         tx_date_str = row.get("transaction_date", "")
         tx_date = safe_parse_date(row)
         
         if tx_date < cutoff_date:
             continue
             
-        senator = row.get("senator", "Unknown")
+        politician = row.get("senator") or row.get("representative") or "Unknown"
         ticker = row.get("ticker", "").strip()
+        chamber = row.get("chamber_assigned", "Unknown")
         
         # Skip useless tickers
         if not ticker or ticker == '--' or ticker == 'Unknown' or len(ticker) > 5 or '<' in ticker:
@@ -124,8 +155,8 @@ def collect_data(days_back=180):
         # Check if already in DB
         cursor.execute('''
             SELECT id FROM trades 
-            WHERE senator=? AND transaction_date=? AND ticker=? AND type=? AND amount_range=?
-        ''', (senator, tx_date_str, ticker, tx_type, amount_range))
+            WHERE politician=? AND transaction_date=? AND ticker=? AND type=? AND amount_range=?
+        ''', (politician, tx_date_str, ticker, tx_type, amount_range))
         
         if cursor.fetchone():
             continue # Already processed
@@ -140,11 +171,11 @@ def collect_data(days_back=180):
         
         try:
             cursor.execute('''
-                INSERT INTO trades (senator, transaction_date, owner, ticker, asset_description, asset_type, type, amount_range, transaction_price, current_price, roi_pct)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (senator, tx_date_str, owner, ticker, asset_desc, asset_type, tx_type, amount_range, tx_price, curr_price, roi))
+                INSERT INTO trades (politician, chamber, transaction_date, owner, ticker, asset_description, asset_type, type, amount_range, transaction_price, current_price, roi_pct)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (politician, chamber, tx_date_str, owner, ticker, asset_desc, asset_type, tx_type, amount_range, tx_price, curr_price, roi))
             added_count += 1
-            logger.info(f"Added trade: {senator} - {ticker} ({tx_type}) ROI: {roi:.2f}%")
+            logger.info(f"Added trade: {politician} ({chamber}) - {ticker} ({tx_type}) ROI: {roi:.2f}%")
         except sqlite3.IntegrityError:
             pass # duplicate
             
@@ -160,4 +191,4 @@ def collect_data(days_back=180):
     logger.info(f"Collection finished. Added {added_count} new trades.")
 
 if __name__ == '__main__':
-    collect_data(days_back=90) # Default to last 90 days for quick run
+    collect_data(days_back=180)

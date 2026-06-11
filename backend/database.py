@@ -12,11 +12,16 @@ def init_db():
     conn = get_connection()
     cursor = conn.cursor()
     
+    # Drop existing tables to recreate schema
+    cursor.execute("DROP TABLE IF EXISTS trades")
+    cursor.execute("DROP TABLE IF EXISTS insights")
+    
     # Table for trades
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS trades (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            senator TEXT,
+            politician TEXT,
+            chamber TEXT,
             transaction_date TEXT,
             owner TEXT,
             ticker TEXT,
@@ -27,7 +32,7 @@ def init_db():
             transaction_price REAL,
             current_price REAL,
             roi_pct REAL,
-            UNIQUE(senator, transaction_date, ticker, type, amount_range)
+            UNIQUE(politician, transaction_date, ticker, type, amount_range)
         )
     ''')
     
@@ -35,11 +40,11 @@ def init_db():
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS insights (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            senator TEXT,
+            politician TEXT,
             ticker TEXT,
             insight_text TEXT,
             last_updated TEXT,
-            UNIQUE(senator, ticker)
+            UNIQUE(politician, ticker)
         )
     ''')
     

@@ -5,8 +5,9 @@ import tarfile
 def create_tarball():
     tar_name = "senate-stock-tracker.tar.gz"
     with tarfile.open(tar_name, "w:gz") as tar:
-        for name in ["backend", "frontend", "data", "Dockerfile", "docker-compose.yml", "requirements.txt"]:
-            tar.add(name)
+        for name in ["backend", "frontend", "data", "Dockerfile", "docker-compose.yml", "requirements.txt", ".env"]:
+            if os.path.exists(name):
+                tar.add(name)
     return tar_name
 
 def deploy():
@@ -37,7 +38,7 @@ def deploy():
         f"cd {remote_dir}",
         f"tar -xzf {tar_name}",
         f"mkdir -p data",
-        f"sudo docker compose up -d --build"
+        f"echo '{password}' | sudo -S docker compose up -d --build"
     ]
     
     stdin, stdout, stderr = ssh.exec_command(" && ".join(commands))

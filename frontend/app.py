@@ -62,8 +62,8 @@ def load_data():
     conn.close()
     return trades_df, insights_df
 
-st.title("🏛️ US Senate Stock Tracker")
-st.markdown("Monitoraggio delle compravendite azionarie dei senatori USA e analisi dei conflitti d'interesse.")
+st.title("🏛️ US Congress Stock Tracker")
+st.markdown("Monitoraggio delle compravendite azionarie dei politici USA e analisi dei conflitti d'interesse.")
 
 trades_df, insights_df = load_data()
 
@@ -73,6 +73,12 @@ else:
     # Convert dates
     trades_df['transaction_date'] = pd.to_datetime(trades_df['transaction_date'])
     
+    # Optional filter by chamber
+    chambers = trades_df['chamber'].unique()
+    selected_chamber = st.selectbox("Filtra per Camera", options=["Tutti"] + list(chambers))
+    if selected_chamber != "Tutti":
+        trades_df = trades_df[trades_df['chamber'] == selected_chamber]
+    
     # KPIs
     col1, col2, col3 = st.columns(3)
     with col1:
@@ -81,10 +87,10 @@ else:
         st.markdown('</div>', unsafe_allow_html=True)
     with col2:
         st.markdown('<div class="metric-container">', unsafe_allow_html=True)
-        st.metric("Senatori Coinvolti", trades_df['senator'].nunique())
+        st.metric("Politici Coinvolti", trades_df['politician'].nunique())
         st.markdown('</div>', unsafe_allow_html=True)
     with col3:
-        avg_roi = trades_df['roi_pct'].mean()
+        avg_roi = trades_df['roi_pct'].mean() if not trades_df.empty else 0
         st.markdown('<div class="metric-container">', unsafe_allow_html=True)
         st.metric("ROI Medio (Stimato)", f"{avg_roi:.2f}%", delta=f"{avg_roi:.2f}%")
         st.markdown('</div>', unsafe_allow_html=True)
@@ -94,26 +100,26 @@ else:
     tab1, tab2, tab3 = st.tabs(["📊 Leaderboard", "📝 Transazioni Recenti", "🤖 Analisi AI (Gemini)"])
 
     with tab1:
-        st.subheader("Senatori Più Profittevoli")
+        st.subheader("Politici Più Profittevoli")
         
-        # Aggregate by senator
-        senator_roi = trades_df.groupby('senator').agg(
+        # Aggregate by politician
+        politician_roi = trades_df.groupby('politician').agg(
             avg_roi=('roi_pct', 'mean'),
             trade_count=('id', 'count')
         ).reset_index().sort_values(by='avg_roi', ascending=False)
         
         # Filter those with at least a few trades for a fair leaderboard
-        senator_roi = senator_roi[senator_roi['trade_count'] >= 1]
+        politician_roi = politician_roi[politician_roi['trade_count'] >= 1]
         
         fig = px.bar(
-            senator_roi.head(15), 
+            politician_roi.head(15), 
             x='avg_roi', 
-            y='senator', 
+            y='politician', 
             orientation='h',
-            title="Top 15 Senatori per Ritorno sull'Investimento (ROI %)",
+            title="Top 15 Politici per Ritorno sull'Investimento (ROI %)",
             color='avg_roi',
             color_continuous_scale="Viridis",
-            labels={'avg_roi': 'ROI Medio (%)', 'senator': 'Senatore'}
+            labels={'avg_roi': 'ROI Medio (%)', 'politician': 'Politico'}
         )
         fig.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font_color='#e0e0e0')
         st.plotly_chart(fig, use_container_width=True)
@@ -123,7 +129,7 @@ else:
         recent = trades_df.sort_values(by='transaction_date', ascending=False).head(50)
         
         # Formatting for display
-        display_df = recent[['transaction_date', 'senator', 'ticker', 'type', 'amount_range', 'roi_pct']].copy()
+        display_df = recent[['transaction_date', 'politician', 'chamber', 'ticker', 'type', 'amount_range', 'roi_pct']].copy()
         display_df['transaction_date'] = display_df['transaction_date'].dt.strftime('%Y-%m-%d')
         display_df['roi_pct'] = display_df['roi_pct'].apply(lambda x: f"{x:.2f}%")
         
@@ -131,23 +137,23 @@ else:
 
     with tab3:
         st.subheader("Possibili Conflitti d'Interesse")
-        st.markdown("L'intelligenza artificiale **Gemini** analizza il portafoglio dei senatori incrociando i loro ruoli politici con i settori delle aziende in cui hanno investito.")
+        st.markdown("L'intelligenza artificiale **Gemini** analizza il portafoglio dei politici incrociando i loro ruoli con i settori delle aziende in cui hanno investito.")
         
         if insights_df.empty:
             st.info("Nessuna analisi generata finora. Esegui lo script `llm_analysis.py`.")
         else:
-            # Join trades with insights
-            for _, row in insights_df.iterrows():
-                senator = row['senator']
+            # Filter insights by available politicians in the filtered trades_df
+            valid_politicians = trades_df['politician'].unique()
+            filtered_insights = insights_df[insights_df['politician'].isin(valid_politicians)]
+            
+            for _, row in filtered_insights.iterrows():
+                politician = row['politician']
                 ticker = row['ticker']
                 insight = row['insight_text']
                 
-                # Get the latest trade details for this pair
-                trade_info = trades_df[(trades_df['senator'] == senator) & (trades_df['ticker'] == ticker)]
-                
                 st.markdown(f"""
                 <div class="senator-card">
-                    <h4>🏛️ {senator} - 📈 {ticker}</h4>
+                    <h4>🏛️ {politician} - 📈 {ticker}</h4>
                     <p style="color: #a0a0a0; font-size: 0.9em;">Ultimo aggiornamento analisi: {row['last_updated'][:10]}</p>
                     <div class="insight-box">
                         <strong>Analisi Gemini:</strong><br>
