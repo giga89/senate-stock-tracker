@@ -76,14 +76,19 @@ elif prog and prog.get("status") == "error":
 
 DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data', 'senators_trading.db')
 
-@st.cache_data(ttl=3600)
+def get_connection():
+    return sqlite3.connect(DB_PATH)
+
+@st.cache_data(ttl=5)
 def load_data():
-    if not os.path.exists(DB_PATH):
-        return pd.DataFrame(), pd.DataFrame()
-        
-    conn = sqlite3.connect(DB_PATH)
-    trades_df = pd.read_sql_query("SELECT * FROM trades", conn)
-    insights_df = pd.read_sql_query("SELECT * FROM insights", conn)
+    conn = get_connection()
+    try:
+        trades_df = pd.read_sql_query("SELECT * FROM trades", conn)
+        insights_df = pd.read_sql_query("SELECT * FROM insights", conn)
+    except Exception:
+        # Tables might not exist yet if it's the very first second of initialization
+        trades_df = pd.DataFrame()
+        insights_df = pd.DataFrame()
     conn.close()
     return trades_df, insights_df
 
