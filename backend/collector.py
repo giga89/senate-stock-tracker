@@ -139,9 +139,8 @@ def collect_data(days_back=180):
             
     all_data.sort(key=safe_parse_date, reverse=True)
     
-    # Calculate cutoff date based on the newest date in the dataset
-    max_date = safe_parse_date(all_data[0]) if all_data else datetime.now()
-    cutoff_date = max_date - timedelta(days=days_back)
+    # Calculate cutoff date relative to today
+    cutoff_date = datetime.now() - timedelta(days=days_back)
     
     # Pre-filter all_data so we know the exact total
     filtered_data = []
@@ -216,4 +215,4 @@ def collect_data(days_back=180):
     update_progress("collecting", total_records, total_records, f"Raccolta completata. Aggiunte {added_count} nuove transazioni.")
 
 if __name__ == '__main__':
-    collect_data(days_back=180)
+    collect_data(days_back=730)

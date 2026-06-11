@@ -12,9 +12,7 @@ def init_db():
     conn = get_connection()
     cursor = conn.cursor()
     
-    # Drop existing tables to recreate schema
-    cursor.execute("DROP TABLE IF EXISTS trades")
-    cursor.execute("DROP TABLE IF EXISTS insights")
+    # Do not drop tables so we accumulate data over time
     
     # Table for trades
     cursor.execute('''
