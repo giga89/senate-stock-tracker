@@ -20,7 +20,7 @@ RUN crontab /etc/cron.d/senate-cron
 RUN touch /var/log/cron.log
 
 # Script to start both cron and streamlit
-RUN echo '#!/bin/sh\ncron\nPYTHONPATH=/app python backend/collector.py\nPYTHONPATH=/app python backend/llm_analysis.py\nstreamlit run frontend/app.py --server.port=8501 --server.address=0.0.0.0' > /app/start.sh
+RUN echo '#!/bin/sh\ncron\n(PYTHONPATH=/app python backend/collector.py && PYTHONPATH=/app python backend/llm_analysis.py) &\nstreamlit run frontend/app.py --server.port=8501 --server.address=0.0.0.0' > /app/start.sh
 RUN chmod +x /app/start.sh
 
 EXPOSE 8501
