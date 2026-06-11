@@ -10,15 +10,16 @@ from backend.database import get_connection, init_db
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-SENATE_DATA_URL = "https://raw.githubusercontent.com/timothycarambat/senate-stock-watcher-data/master/aggregate/all_transactions.json"
-HOUSE_DATA_URL = "https://raw.githubusercontent.com/timothycarambat/house-stock-watcher-data/master/data/all_transactions.json"
+KADOA_TRADES_URL = "https://raw.githubusercontent.com/kadoa-org/congress-trading-monitor/main/public/data/trades.json"
+FMP_API_KEY = "QPNreVEDlsaLlSuEG3ZUYOb02Yz7odKs"
+FMP_API_URL = f"https://financialmodelingprep.com/stable/senate-latest?apikey={FMP_API_KEY}"
 
 _price_cache = {}
 
 def get_stock_prices(ticker, transaction_date_str):
     """
     Returns (transaction_date_price, current_price) using yfinance.
-    transaction_date_str is usually in MM/DD/YYYY format.
+    transaction_date_str is usually in MM/DD/YYYY or YYYY-MM-DD format.
     """
     cache_key = f"{ticker}_{transaction_date_str}"
     if cache_key in _price_cache:
@@ -84,50 +85,78 @@ def calculate_roi(tx_type, tx_price, curr_price):
         return -perf
     return 0.0
 
-def fetch_data_from_url(url, chamber):
-    try:
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-        }
-        response = requests.get(url, headers=headers)
-        if response.status_code == 200:
-            data = response.json()
-            for row in data:
-                row['chamber_assigned'] = chamber
-            return data
-        else:
-            logger.warning(f"Failed to fetch {chamber} data. HTTP {response.status_code} (Probably dead API)")
-            return []
-    except Exception as e:
-        logger.warning(f"Error fetching {chamber} data: {e}")
-        return []
-
-def collect_data(days_back=180):
+def collect_data(days_back=730):
     logger.info("Starting data collection...")
     init_db()
     
     from backend.progress import update_progress
-    update_progress("collecting", 0, 100, "Inizializzazione collector e download sorgenti...")
+    update_progress("collecting", 0, 100, "Inizializzazione collector e download sorgenti FMP/Kadoa...")
     
     all_data = []
     
-    # Fetch Senate
-    senate_data = fetch_data_from_url(SENATE_DATA_URL, "Senate")
-    all_data.extend(senate_data)
-    
-    # Fetch House (Currently the repository/API is down, but we try anyway just in case it comes back)
-    # house_data = fetch_data_from_url(HOUSE_DATA_URL, "House")
-    # all_data.extend(house_data)
+    # Fetch Kadoa historical data
+    try:
+        logger.info("Fetching Kadoa historical data...")
+        kadoa_resp = requests.get(KADOA_TRADES_URL)
+        if kadoa_resp.status_code == 200:
+            for r in kadoa_resp.json():
+                chamber_str = r.get("chamber") or "Unknown"
+                ticker_str = r.get("ticker") or ""
+                all_data.append({
+                    "transaction_date": r.get("transaction_date", ""),
+                    "politician": r.get("filer_name", "Unknown"),
+                    "chamber_assigned": chamber_str.title(),
+                    "ticker": ticker_str,
+                    "type": r.get("transaction_type", ""),
+                    "amount": r.get("amount_range_label", ""),
+                    "asset_description": r.get("asset_name", ""),
+                    "owner": r.get("owner", "Unknown"),
+                    "asset_type": r.get("asset_type", "")
+                })
+        else:
+            logger.warning(f"Failed to fetch Kadoa data. HTTP {kadoa_resp.status_code}")
+    except Exception as e:
+        logger.error(f"Error fetching Kadoa data: {e}")
+
+    # Fetch FMP real-time data
+    try:
+        logger.info("Fetching FMP real-time data...")
+        fmp_resp = requests.get(FMP_API_URL)
+        if fmp_resp.status_code == 200:
+            for r in fmp_resp.json():
+                first = r.get("firstName") or ""
+                last = r.get("lastName") or ""
+                politician = f"{first} {last}".strip() or "Unknown"
+                
+                district = r.get("district", "")
+                chamber = "House" if district and len(district) > 2 and any(c.isdigit() for c in district) else "Senate"
+                
+                ticker_str = r.get("symbol") or ""
+                all_data.append({
+                    "transaction_date": r.get("transactionDate", ""),
+                    "politician": politician,
+                    "chamber_assigned": chamber,
+                    "ticker": ticker_str,
+                    "type": r.get("type", ""),
+                    "amount": r.get("amount", ""),
+                    "asset_description": r.get("assetDescription", ""),
+                    "owner": r.get("owner", "Unknown"),
+                    "asset_type": r.get("assetType", "")
+                })
+        else:
+            logger.warning(f"Failed to fetch FMP data. HTTP {fmp_resp.status_code}")
+    except Exception as e:
+        logger.error(f"Error fetching FMP data: {e}")
     
     if not all_data:
         logger.error("No data fetched from any source.")
-        update_progress("error", 0, 100, "Nessun dato trovato dai sorgenti.")
+        update_progress("error", 0, 100, "Nessun dato trovato dai sorgenti FMP/Kadoa.")
         return
     
     conn = get_connection()
     cursor = conn.cursor()
     
-    # Dates are in MM/DD/YYYY format usually
+    # Dates are in MM/DD/YYYY or YYYY-MM-DD format
     def safe_parse_date(d):
         try:
             return datetime.strptime(d.get('transaction_date', ''), "%m/%d/%Y")
@@ -150,18 +179,20 @@ def collect_data(days_back=180):
             filtered_data.append(row)
             
     total_records = len(filtered_data)
+    logger.info(f"Filtered {total_records} records within the last {days_back} days.")
     
-    processed_count = 0
     added_count = 0
+    processed_count = 0
     
     for i, row in enumerate(filtered_data):
-        tx_date_str = row.get("transaction_date", "")
-        tx_date = safe_parse_date(row)
-        
-        # Determine politician name (House uses 'representative', Senate uses 'senator')
-        politician = row.get("representative") or row.get("senator") or "Unknown"
-        chamber = row.get("chamber_assigned", "Unknown")
-        ticker = row.get("ticker", "").strip()
+        if i % 10 == 0:
+            update_progress("collecting", i, total_records, f"Elaborazione transazione {i}/{total_records}...")
+            
+        politician = (row.get("politician") or "Unknown").strip()
+        chamber = (row.get("chamber_assigned") or "Unknown").strip()
+        tx_date_str = (row.get("transaction_date") or "").strip()
+        owner = (row.get("owner") or "Unknown").strip()
+        ticker = (row.get("ticker") or "").strip()
         tx_type = row.get("type", "")
         amount_range = row.get("amount", "")
         asset_desc = row.get("asset_description", "")
