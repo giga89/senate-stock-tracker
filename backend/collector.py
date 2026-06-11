@@ -10,8 +10,8 @@ from backend.database import get_connection, init_db
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-SENATE_DATA_URL = "https://senate-stock-watcher-data.s3-us-west-2.amazonaws.com/aggregate/all_transactions.json"
-HOUSE_DATA_URL = "https://house-stock-watcher-data.s3-us-west-2.amazonaws.com/data/all_transactions.json"
+SENATE_DATA_URL = "https://raw.githubusercontent.com/timothycarambat/senate-stock-watcher-data/master/aggregate/all_transactions.json"
+HOUSE_DATA_URL = "https://raw.githubusercontent.com/timothycarambat/house-stock-watcher-data/master/data/all_transactions.json"
 
 def get_stock_prices(ticker, transaction_date_str):
     """
@@ -109,8 +109,6 @@ def collect_data(days_back=180):
     if not all_data:
         logger.error("No data fetched from any source.")
         return
-        
-    cutoff_date = datetime.now() - timedelta(days=days_back)
     
     conn = get_connection()
     cursor = conn.cursor()
@@ -130,6 +128,10 @@ def collect_data(days_back=180):
                 return datetime.min
             
     all_data.sort(key=safe_parse_date, reverse=True)
+    
+    # Calculate cutoff date based on the newest date in the dataset
+    max_date = safe_parse_date(all_data[0]) if all_data else datetime.now()
+    cutoff_date = max_date - timedelta(days=days_back)
     
     for row in all_data:
         tx_date_str = row.get("transaction_date", "")
