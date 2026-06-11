@@ -13,11 +13,17 @@ logger = logging.getLogger(__name__)
 SENATE_DATA_URL = "https://raw.githubusercontent.com/timothycarambat/senate-stock-watcher-data/master/aggregate/all_transactions.json"
 HOUSE_DATA_URL = "https://raw.githubusercontent.com/timothycarambat/house-stock-watcher-data/master/data/all_transactions.json"
 
+_price_cache = {}
+
 def get_stock_prices(ticker, transaction_date_str):
     """
     Returns (transaction_date_price, current_price) using yfinance.
     transaction_date_str is usually in MM/DD/YYYY format.
     """
+    cache_key = f"{ticker}_{transaction_date_str}"
+    if cache_key in _price_cache:
+        return _price_cache[cache_key]
+
     try:
         if not ticker or ticker == '--' or ticker == 'Unknown':
             return None, None
@@ -44,6 +50,7 @@ def get_stock_prices(ticker, transaction_date_str):
         
         hist = stock.history(start=start_date, end=end_date)
         if hist.empty:
+            _price_cache[cache_key] = (None, None)
             return None, None
             
         tx_price = float(hist['Close'].iloc[0])
@@ -51,13 +58,16 @@ def get_stock_prices(ticker, transaction_date_str):
         # Get current price
         curr_hist = stock.history(period="1d")
         if curr_hist.empty:
+            _price_cache[cache_key] = (tx_price, tx_price)
             return tx_price, tx_price # Fallback
             
         curr_price = float(curr_hist['Close'].iloc[-1])
         
+        _price_cache[cache_key] = (tx_price, curr_price)
         return tx_price, curr_price
     except Exception as e:
         logger.error(f"Error fetching price for {ticker}: {e}")
+        _price_cache[cache_key] = (None, None)
         return None, None
 
 def calculate_roi(tx_type, tx_price, curr_price):
@@ -86,7 +96,7 @@ def fetch_data_from_url(url, chamber):
                 row['chamber_assigned'] = chamber
             return data
         else:
-            logger.warning(f"Failed to fetch {chamber} data. HTTP {response.status_code}")
+            logger.warning(f"Failed to fetch {chamber} data. HTTP {response.status_code} (Probably dead API)")
             return []
     except Exception as e:
         logger.warning(f"Error fetching {chamber} data: {e}")
@@ -102,9 +112,9 @@ def collect_data(days_back=180):
     senate_data = fetch_data_from_url(SENATE_DATA_URL, "Senate")
     all_data.extend(senate_data)
     
-    # Fetch House
-    house_data = fetch_data_from_url(HOUSE_DATA_URL, "House")
-    all_data.extend(house_data)
+    # Fetch House (Currently the repository/API is down, but we try anyway just in case it comes back)
+    # house_data = fetch_data_from_url(HOUSE_DATA_URL, "House")
+    # all_data.extend(house_data)
     
     if not all_data:
         logger.error("No data fetched from any source.")

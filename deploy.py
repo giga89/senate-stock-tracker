@@ -33,7 +33,7 @@ def deploy():
     sftp.put(tar_name, f"{remote_dir}/{tar_name}")
     sftp.close()
     
-    print("Extracting files and starting Docker...")
+    print("Extracting files and starting Docker (this might take a few minutes if it's building for the first time)...")
     commands = [
         f"cd {remote_dir}",
         f"tar -xzf {tar_name}",
@@ -43,13 +43,24 @@ def deploy():
     
     stdin, stdout, stderr = ssh.exec_command(" && ".join(commands))
     
-    # Wait for completion
+    # Read output line by line
+    while True:
+        line = stdout.readline()
+        if not line:
+            break
+        print(line.strip())
+        
+    while True:
+        err_line = stderr.readline()
+        if not err_line:
+            break
+        print(f"ERR: {err_line.strip()}")
+        
     exit_status = stdout.channel.recv_exit_status()
     if exit_status == 0:
         print("Deploy successful!")
     else:
-        print("Deploy failed:")
-        print(stderr.read().decode())
+        print("Deploy failed.")
         
     ssh.close()
     os.remove(tar_name)
