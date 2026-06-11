@@ -23,7 +23,7 @@ Cerca di individuare se c'è un legame potenziale tra il lavoro di questo politi
 Rispondi in modo conciso, in italiano, evidenziando se ci sono possibili conflitti di interesse o correlazioni rilevanti. Se non ci sono correlazioni evidenti, dillo. Non superare le 4-5 frasi.
 """
     try:
-        model = genai.GenerativeModel('gemini-1.5-flash-latest')
+        model = genai.GenerativeModel('gemini-2.5-flash-lite')
         response = model.generate_content(prompt)
         return response.text.strip()
     except Exception as e:
