@@ -34,6 +34,9 @@ def update_insights():
     logger.info("Starting LLM insights generation...")
     configure_gemini()
     
+    from backend.progress import update_progress
+    update_progress("analyzing", 0, 100, "Inizializzazione analisi AI (Gemini)...")
+    
     conn = get_connection()
     cursor = conn.cursor()
     
@@ -46,12 +49,20 @@ def update_insights():
     ''')
     
     pairs = cursor.fetchall()
+    total = len(pairs)
     
-    for row in pairs:
+    if total == 0:
+        update_progress("done", 100, 100, "Tutti i dati aggiornati e analizzati!")
+        logger.info("No new insights to generate.")
+        conn.close()
+        return
+
+    for i, row in enumerate(pairs):
         politician = row['politician']
         ticker = row['ticker']
         asset_desc = row['asset_description']
         
+        update_progress("analyzing", i + 1, total, f"Analisi AI {i+1}/{total}: {politician} su {ticker}")
         logger.info(f"Generating insight for {politician} - {ticker}")
         insight = generate_insight(politician, ticker, asset_desc)
         
@@ -63,6 +74,7 @@ def update_insights():
     conn.commit()
     conn.close()
     logger.info("LLM insights generation finished.")
+    update_progress("done", total, total, "Tutti i dati aggiornati e analizzati con successo!")
 
 if __name__ == '__main__':
     update_insights()

@@ -106,6 +106,9 @@ def collect_data(days_back=180):
     logger.info("Starting data collection...")
     init_db()
     
+    from backend.progress import update_progress
+    update_progress("collecting", 0, 100, "Inizializzazione collector e download sorgenti...")
+    
     all_data = []
     
     # Fetch Senate
@@ -118,15 +121,12 @@ def collect_data(days_back=180):
     
     if not all_data:
         logger.error("No data fetched from any source.")
+        update_progress("error", 0, 100, "Nessun dato trovato dai sorgenti.")
         return
     
     conn = get_connection()
     cursor = conn.cursor()
     
-    processed_count = 0
-    added_count = 0
-    
-    # Sort data by transaction date, newest first
     # Dates are in MM/DD/YYYY format usually
     def safe_parse_date(d):
         try:
@@ -143,27 +143,39 @@ def collect_data(days_back=180):
     max_date = safe_parse_date(all_data[0]) if all_data else datetime.now()
     cutoff_date = max_date - timedelta(days=days_back)
     
+    # Pre-filter all_data so we know the exact total
+    filtered_data = []
     for row in all_data:
+        tx_date = safe_parse_date(row)
+        if tx_date >= cutoff_date:
+            filtered_data.append(row)
+            
+    total_records = len(filtered_data)
+    
+    processed_count = 0
+    added_count = 0
+    
+    for i, row in enumerate(filtered_data):
         tx_date_str = row.get("transaction_date", "")
         tx_date = safe_parse_date(row)
         
-        if tx_date < cutoff_date:
-            continue
-            
-        politician = row.get("senator") or row.get("representative") or "Unknown"
-        ticker = row.get("ticker", "").strip()
+        # Determine politician name (House uses 'representative', Senate uses 'senator')
+        politician = row.get("representative") or row.get("senator") or "Unknown"
         chamber = row.get("chamber_assigned", "Unknown")
+        ticker = row.get("ticker", "").strip()
+        tx_type = row.get("type", "")
+        amount_range = row.get("amount", "")
+        asset_desc = row.get("asset_description", "")
+        owner = row.get("owner", "Unknown")
+        asset_type = row.get("asset_type", "")
+        
+        if i % 10 == 0 or i == total_records - 1:
+            update_progress("collecting", i + 1, total_records, f"Elaborazione transazione {i+1}/{total_records}: {politician} - {ticker}")
         
         # Skip useless tickers
         if not ticker or ticker == '--' or ticker == 'Unknown' or len(ticker) > 5 or '<' in ticker:
             continue
             
-        owner = row.get("owner", "Unknown")
-        asset_desc = row.get("asset_description", "")
-        asset_type = row.get("asset_type", "")
-        tx_type = row.get("type", "")
-        amount_range = row.get("amount", "")
-        
         # Check if already in DB
         cursor.execute('''
             SELECT id FROM trades 
@@ -201,6 +213,7 @@ def collect_data(days_back=180):
     conn.commit()
     conn.close()
     logger.info(f"Collection finished. Added {added_count} new trades.")
+    update_progress("collecting", total_records, total_records, f"Raccolta completata. Aggiunte {added_count} nuove transazioni.")
 
 if __name__ == '__main__':
     collect_data(days_back=180)

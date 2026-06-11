@@ -1,9 +1,13 @@
 import streamlit as st
+from streamlit_autorefresh import st_autorefresh
 import sqlite3
 import pandas as pd
 import plotly.express as px
 import os
+import sys
 
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from backend.progress import get_progress
 # Page config
 st.set_page_config(
     page_title="Senate Stock Tracker",
@@ -29,25 +33,46 @@ st.markdown("""
         border-radius: 10px;
         padding: 20px;
         border: 1px solid rgba(255, 255, 255, 0.1);
-        backdrop-filter: blur(10px);
+        padding: 15px;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.3);
     }
     .senator-card {
-        background: linear-gradient(145deg, #1e2128, #15171c);
-        border-radius: 12px;
-        padding: 20px;
-        margin-bottom: 20px;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.2);
-        border: 1px solid #2d313a;
+        background-color: #1e2530;
+        border-left: 5px solid #ff4b4b;
+        padding: 15px;
+        margin-bottom: 15px;
+        border-radius: 5px;
     }
     .insight-box {
-        border-left: 4px solid #4CAF50;
-        background-color: rgba(76, 175, 80, 0.1);
-        padding: 15px;
-        border-radius: 0 8px 8px 0;
+        background-color: #2b3340;
+        padding: 10px;
+        border-radius: 5px;
         margin-top: 10px;
     }
 </style>
 """, unsafe_allow_html=True)
+
+# --- Progress Tracking ---
+prog = get_progress()
+if prog and prog.get("status") not in ("done", "error"):
+    # Autorefresh every 2 seconds if still running
+    st_autorefresh(interval=2000, limit=None, key="data_refresh")
+    
+    st.info("🔄 **Aggiornamento dati in corso in background...**")
+    status_msg = prog.get("message", "Elaborazione in corso...")
+    current = prog.get("current", 0)
+    total = prog.get("total", 100)
+    
+    # Calculate percentage safely
+    pct = 0.0
+    if total > 0:
+        pct = current / total
+        pct = min(max(pct, 0.0), 1.0)
+        
+    st.progress(pct, text=status_msg)
+
+elif prog and prog.get("status") == "error":
+    st.error(prog.get("message", "Errore durante l'aggiornamento."))
 
 DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data', 'senators_trading.db')
 
