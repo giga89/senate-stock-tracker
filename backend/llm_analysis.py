@@ -1,6 +1,7 @@
 import sqlite3
 import google.generativeai as genai
 import logging
+import time
 from datetime import datetime
 from backend.database import get_connection
 
@@ -64,12 +65,28 @@ def update_insights():
         
         update_progress("analyzing", i + 1, total, f"Analisi AI {i+1}/{total}: {politician} su {ticker}")
         logger.info(f"Generating insight for {politician} - {ticker}")
-        insight = generate_insight(politician, ticker, asset_desc)
         
-        cursor.execute('''
-            INSERT INTO insights (politician, ticker, insight_text, last_updated)
-            VALUES (?, ?, ?, ?)
-        ''', (politician, ticker, insight, datetime.now().isoformat()))
+        insight = None
+        retries = 0
+        while retries < 3:
+            insight = generate_insight(politician, ticker, asset_desc)
+            if "Impossibile generare l'analisi" in insight:
+                # Possibile errore 429, aspettiamo 60 secondi
+                logger.warning("Possibile limite di quota superato. Attesa di 60 secondi...")
+                update_progress("analyzing", i + 1, total, f"In pausa (limite API). Ripresa tra 60s...")
+                time.sleep(60)
+                retries += 1
+            else:
+                break
+                
+        if insight and "Impossibile" not in insight:
+            cursor.execute('''
+                INSERT INTO insights (politician, ticker, insight_text, last_updated)
+                VALUES (?, ?, ?, ?)
+            ''', (politician, ticker, insight, datetime.now().isoformat()))
+            
+        # Add a delay to stay within 10 Requests Per Minute free tier limits
+        time.sleep(7)
         
     conn.commit()
     conn.close()
