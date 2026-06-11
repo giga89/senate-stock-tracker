@@ -98,6 +98,11 @@ else:
     # Convert dates
     trades_df['transaction_date'] = pd.to_datetime(trades_df['transaction_date'])
     
+    # Calculate Timing Score: ROI + (Monthly Velocity of ROI)
+    trades_df['days_held'] = (pd.Timestamp.now() - trades_df['transaction_date']).dt.days.clip(lower=1)
+    trades_df['velocity'] = trades_df['roi_pct'] * 30 / trades_df['days_held']
+    trades_df['timing_score'] = trades_df['roi_pct'] + trades_df['velocity']
+    
     # Optional filter by chamber
     chambers = trades_df['chamber'].unique()
     selected_chamber = st.selectbox("Filtra per Camera", options=["Tutti"] + list(chambers))
@@ -125,29 +130,53 @@ else:
     tab1, tab2, tab3 = st.tabs(["📊 Leaderboard", "📝 Transazioni Recenti", "🤖 Analisi AI (Gemini)"])
 
     with tab1:
-        st.subheader("Politici Più Profittevoli")
+        st.subheader("Leaderboard Politici")
         
         # Aggregate by politician
-        politician_roi = trades_df.groupby('politician').agg(
+        politician_stats = trades_df.groupby('politician').agg(
             avg_roi=('roi_pct', 'mean'),
+            avg_timing_score=('timing_score', 'mean'),
             trade_count=('id', 'count')
-        ).reset_index().sort_values(by='avg_roi', ascending=False)
+        ).reset_index()
         
         # Filter those with at least a few trades for a fair leaderboard
-        politician_roi = politician_roi[politician_roi['trade_count'] >= 1]
+        politician_stats = politician_stats[politician_stats['trade_count'] >= 1]
         
-        fig = px.bar(
-            politician_roi.head(15), 
-            x='avg_roi', 
-            y='politician', 
-            orientation='h',
-            title="Top 15 Politici per Ritorno sull'Investimento (ROI %)",
-            color='avg_roi',
-            color_continuous_scale="Viridis",
-            labels={'avg_roi': 'ROI Medio (%)', 'politician': 'Politico'}
-        )
-        fig.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font_color='#e0e0e0')
-        st.plotly_chart(fig, use_container_width=True)
+        # Scelta della classifica da visualizzare
+        view_type = st.radio("Scegli la metrica per la classifica:", 
+            ["⚡ Classifica per Timing Score", "💰 Classifica per ROI Medio"], horizontal=True)
+        
+        if view_type == "⚡ Classifica per Timing Score":
+            st.markdown("**Timing Score** = ROI + Velocità di guadagno mensile. Premia chi ottiene alti ritorni in poco tempo.")
+            top_timing = politician_stats.sort_values(by='avg_timing_score', ascending=False).head(15)
+            fig_timing = px.bar(
+                top_timing, 
+                x='avg_timing_score', 
+                y='politician', 
+                orientation='h',
+                title="Top 15 Politici per Timing Score",
+                color='avg_timing_score',
+                color_continuous_scale="Plasma",
+                labels={'avg_timing_score': 'Timing Score', 'politician': 'Politico'}
+            )
+            fig_timing.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font_color='#e0e0e0')
+            st.plotly_chart(fig_timing, use_container_width=True)
+
+        else:
+            st.markdown("Classifica classica basata esclusivamente sulla media del ritorno sull'investimento.")
+            top_roi = politician_stats.sort_values(by='avg_roi', ascending=False).head(15)
+            fig_roi = px.bar(
+                top_roi, 
+                x='avg_roi', 
+                y='politician', 
+                orientation='h',
+                title="Top 15 Politici per Ritorno sull'Investimento (ROI %)",
+                color='avg_roi',
+                color_continuous_scale="Viridis",
+                labels={'avg_roi': 'ROI Medio (%)', 'politician': 'Politico'}
+            )
+            fig_roi.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font_color='#e0e0e0')
+            st.plotly_chart(fig_roi, use_container_width=True)
 
     with tab2:
         st.subheader("Ultime Transazioni")
